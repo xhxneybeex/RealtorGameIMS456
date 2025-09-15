@@ -6,35 +6,55 @@ public class FirstPersonController : MonoBehaviour
     // --- Movement ---
     public float walkSpeed = 5f;
     public float runSpeed = 9f;
-    public float gravity = -24f;   // stronger works better with CharacterController
-    public float jumpHeight = 1.6f;   // meters
+    public float gravity = -24f;      // works well with CharacterController
+    public float jumpHeight = 1.6f;     // meters
+
+    // --- Jump (with delay) ---
+    [Header("Jump Settings")]
+    public float jumpDelay = 1f;
+
+    // --- Fast grounded probe ---
+    [Header("Ground Check")]
+    public LayerMask groundLayers = ~0; // set to your floor layers
+    public float groundCheckRadius = 0.2f;
+    public float groundCheckOffset = 0.05f;
 
     // --- Mouse Look ---
-    public Transform cameraHolder;     // child at head height with Main Camera inside
+    [Header("Look")]
+    public Transform cameraHolder;      // parent of the Camera (pitch lives here)
     public float lookSensitivity = 2f;
     public float minPitch = -80f, maxPitch = 80f;
 
-    // --- Animator parameter names ---
-    public string speedParam = "Speed";       // Blend Tree: 0 idle, 0.5 walk, 1 run
-    public string groundedBool = "IsGrounded";  // Bool
-    public string jumpTrigger = "Jump";        // Trigger
+    // --- Animator (optional) ---
+    [Header("Animator (optional)")]
+    public Animator animator;
+    public string speedParam = "Speed";
+    public string groundedBool = "IsGrounded";
+    public string jumpTrigger = "Jump";
 
     CharacterController cc;
-    Animator animator;
     Vector3 velocity;
     float yaw, pitch;
+
+    // Jump state
+    bool groundedNow;
+    bool jumpQueued = false;
+    float jumpTimer = 0f;
+    bool jumpArmed = true;  // re-armed when landed & Space released
+    bool jumpHeld = false;
 
     void Awake()
     {
         cc = GetComponent<CharacterController>();
-        animator = GetComponentInChildren<Animator>();
 
-        // auto-find cameraHolder if not assigned
+        // Auto-find cameraHolder if not set
         if (!cameraHolder)
         {
             var cam = GetComponentInChildren<Camera>();
             if (cam) cameraHolder = cam.transform.parent ? cam.transform.parent : cam.transform;
         }
+
+        if (!animator) animator = GetComponentInChildren<Animator>();
 
         yaw = transform.eulerAngles.y;
         Cursor.lockState = CursorLockMode.Locked;
@@ -43,8 +63,16 @@ public class FirstPersonController : MonoBehaviour
 
     void Update()
     {
+        // Input edges for jump
+        bool pressJump = Input.GetKeyDown(KeyCode.Space);
+        bool releaseJump = Input.GetKeyUp(KeyCode.Space);
+        jumpHeld = Input.GetKey(KeyCode.Space);
+        if (releaseJump) jumpArmed = true;
+
         Look();
-        MoveAndAnimate();
+        Move(pressJump);
+        HandleJumpDelay();
+        Animate();
     }
 
     void Look()
@@ -56,46 +84,81 @@ public class FirstPersonController : MonoBehaviour
         pitch -= mouseY;
         pitch = Mathf.Clamp(pitch, minPitch, maxPitch);
 
-        transform.rotation = Quaternion.Euler(0f, yaw, 0f);          // player yaw
-        if (cameraHolder) cameraHolder.localRotation = Quaternion.Euler(pitch, 0f, 0f); // camera pitch
+        // yaw on body, pitch on camera holder
+        transform.rotation = Quaternion.Euler(0f, yaw, 0f);
+        if (cameraHolder) cameraHolder.localRotation = Quaternion.Euler(pitch, 0f, 0f);
     }
 
-    void MoveAndAnimate()
+    void Move(bool pressJump)
     {
-        // --- Grounded / stick-to-ground ---
-        bool isGrounded = cc.isGrounded;
-        if (isGrounded && velocity.y < 0f) velocity.y = -2f;
-
-        // --- Input & movement (no rotation from WASD) ---
+        // Planar movement (camera/body forward)
         float h = Input.GetAxisRaw("Horizontal");
         float v = Input.GetAxisRaw("Vertical");
         Vector3 dir = (transform.right * h + transform.forward * v).normalized;
 
         bool moving = dir.sqrMagnitude > 0f;
         bool running = moving && Input.GetKey(KeyCode.LeftShift);
+        float speed = running ? runSpeed : (moving ? walkSpeed : 0f);
 
-        float moveSpeed = running ? runSpeed : (moving ? walkSpeed : 0f);
-        if (moveSpeed > 0f)
-            cc.Move(dir * moveSpeed * Time.deltaTime);
+        if (speed > 0f)
+            cc.Move(dir * speed * Time.deltaTime);
 
-        // --- Jump ---
-        if (isGrounded && Input.GetKeyDown(KeyCode.Space))
+        // Fast grounded probe (snappier than isGrounded)
+        groundedNow = FastGrounded();
+        if (groundedNow && velocity.y < 0f)
+            velocity.y = -4f; // stick to floor
+
+        // Queue jump with delay (don’t apply Y yet)
+        if (groundedNow && pressJump && !jumpQueued && jumpArmed)
         {
-            velocity.y = Mathf.Sqrt(2f * jumpHeight * -gravity); // v = sqrt(2 g h)
-            if (animator) animator.SetTrigger(jumpTrigger);
+            jumpQueued = true;
+            jumpTimer = Mathf.Max(0f, jumpDelay);
+            if (animator) { animator.ResetTrigger(jumpTrigger); animator.SetTrigger(jumpTrigger); }
+            jumpArmed = false; // re-armed after land & release
         }
 
-        // --- Gravity ---
+        // Gravity + vertical move
         velocity.y += gravity * Time.deltaTime;
-        cc.Move(velocity * Time.deltaTime);
+        cc.Move(new Vector3(0f, velocity.y, 0f) * Time.deltaTime);
 
-        // --- Animator params ---
-        if (animator)
+        // Re-arm once landed and key released
+        if (groundedNow && !jumpHeld) jumpArmed = true;
+    }
+
+    void HandleJumpDelay()
+    {
+        if (!jumpQueued) return;
+
+        jumpTimer -= Time.deltaTime;
+        if (jumpTimer <= 0f)
         {
-            // your Blend Tree thresholds: 0 idle, 0.5 walk, 1 run
-            float animSpeed = running ? 1f : (moving ? 0.5f : 0f);
-            animator.SetFloat(speedParam, animSpeed, 0.1f, Time.deltaTime);
-            animator.SetBool(groundedBool, isGrounded);
+            // Liftoff only if still grounded (prevents midair jump)
+            if (groundedNow)
+                velocity.y = Mathf.Sqrt(2f * jumpHeight * -gravity);
+            jumpQueued = false;
         }
     }
+
+    bool FastGrounded()
+    {
+        var b = cc.bounds;
+        Vector3 feet = new Vector3(b.center.x, b.min.y + groundCheckOffset, b.center.z);
+        return Physics.CheckSphere(feet, groundCheckRadius, groundLayers, QueryTriggerInteraction.Ignore);
+    }
+
+    void Animate()
+    {
+        if (!animator) return;
+
+        float h = Input.GetAxisRaw("Horizontal");
+        float v = Input.GetAxisRaw("Vertical");
+        bool moving = (new Vector2(h, v)).sqrMagnitude > 0f;
+        bool running = moving && Input.GetKey(KeyCode.LeftShift);
+        float animSpeed = moving ? (running ? 1f : 0.5f) : 0f;
+
+        animator.SetFloat(speedParam, animSpeed, 0.1f, Time.deltaTime);
+        animator.SetBool(groundedBool, groundedNow);
+    }
+
+  
 }
