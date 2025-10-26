@@ -1,23 +1,21 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
 public class Change : MonoBehaviour
 {
-    // Start is called before the first frame update
-    void Start()
+    // Loads a specific scene by name
+    public void StartGame()
     {
-        
+        SceneManager.LoadScene("MainScene"); // change to your scene name
     }
 
-    // Update is called once per frame
-    void Update()
+    // Quits the entire game/application
+    public void QuitGame()
     {
-        if (Input.GetKeyDown(KeyCode.E))
-        {
-            SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex + 1);
-        }
-        
+        // This works when the game is built
+        Application.Quit();
+
+        // This is just so you can see it works in the editor
+        Debug.Log("Quit Game!");
     }
 }
