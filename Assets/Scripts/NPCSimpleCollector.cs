@@ -20,17 +20,24 @@ public class NPCSimpleCollector : MonoBehaviour
     [Range(0f, 1f)] public float chanceToPickUp = 0.7f;
 
     [Header("Motion (physics-driven)")]
-    public float moveSpeed = 3.5f;          // similar to agent.speed
-    public float accel = 20f;               // how fast we reach target velocity
-    public float turnSpeed = 10f;           // facing smoothing
-    public float stopEpsilon = 0.05f;       // small deadzone
-    public float stuckSeconds = 2f;         // fail-safe: repath if not progressing
+    public float moveSpeed = 3.5f;
+    public float accel = 20f;
+    public float turnSpeed = 10f;
+    public float stopEpsilon = 0.05f;
+    public float stuckSeconds = 2f;
+
+    [Header("Wall Avoidance")]
+    public float wallCheckDistance = 1.0f;       // how far ahead we look
+    public float avoidJumpDistance = 3.0f;       // how far to pick a new point when avoiding
+    public LayerMask wallMask = ~0;              // usually your environment layers
+    public float reavoidCooldown = 0.5f;         // small cooldown so we do not spam repaths
 
     NavMeshAgent agent;
     Rigidbody rb;
     CapsuleCollider cap;
 
     float nextPathTime;
+    float nextAvoidTime;
     Transform currentItem;
 
     Vector3 lastProgressPos;
@@ -45,24 +52,24 @@ public class NPCSimpleCollector : MonoBehaviour
         rb = GetComponent<Rigidbody>();
         cap = GetComponent<CapsuleCollider>();
 
-        // Agent only plans, we move with physics.
+        // agent plans, rb moves
         agent.updatePosition = false;
         agent.updateRotation = false;
         agent.autoBraking = true;
-        agent.autoTraverseOffMeshLink = true; // optional, disable if you want custom link traversal
+        agent.autoTraverseOffMeshLink = true;
 
-        // Keep agent dimensions in line with collider so corners/doors match expectations.
+        // size sync with collider
         agent.radius = Mathf.Max(agent.radius, cap.radius);
         agent.height = Mathf.Max(agent.height, cap.height);
         agent.baseOffset = cap.height * 0.5f;
 
-        // Physics settings
+        // physics
         rb.isKinematic = false;
         rb.useGravity = true;
         rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
         rb.constraints = RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
 
-        // Pickups: stop close enough that DistanceTo() will succeed.
+        // pickup stop
         agent.stoppingDistance = Mathf.Min(agent.stoppingDistance, pickupRange * 0.8f);
 
         lastProgressPos = transform.position;
@@ -74,50 +81,37 @@ public class NPCSimpleCollector : MonoBehaviour
         if (state == State.Roam) TickRoam();
         else TickToItem();
 
-        // Keep the agent “anchored” to the rigidbody for planning.
+        // keep agent aligned to rb
         agent.nextPosition = rb.position;
-        agent.velocity = rb.velocity; // helps the agent think we are actually moving
+        agent.velocity = rb.velocity;
 
-        // Simple unstuck: if we haven't progressed toward the goal for a while, repath.
-        if (agent.hasPath && !agent.pathPending)
-        {
-            // Only consider horizontal progress.
-            float moved = Vector3.ProjectOnPlane(rb.position - lastProgressPos, Vector3.up).magnitude;
-            if (moved > 0.1f)
-            {
-                lastProgressPos = rb.position;
-                lastProgressTime = Time.time;
-            }
-            else if (Time.time - lastProgressTime > stuckSeconds)
-            {
-                // Rekick the same destination to force a fresh solve.
-                if (agent.hasPath) agent.SetDestination(agent.destination);
-                lastProgressTime = Time.time;
-            }
-        }
-        else
-        {
-            lastProgressPos = rb.position;
-            lastProgressTime = Time.time;
-        }
+        // simple unstuck
+        HandleProgressFailSafe();
+
+        // check a short feeler for walls and turn away if needed
+        TryAvoidWall();
     }
 
     void FixedUpdate()
     {
-        // 1) Get the agent's steering intent.
-        Vector3 desiredVel = agent.desiredVelocity;         // world-space velocity the agent wants
+        // agent's intent
+        Vector3 desiredVel = agent.desiredVelocity;
         Vector3 desiredPlanar = Vector3.ProjectOnPlane(desiredVel, Vector3.up);
 
-        // 2) Compute target velocity we want the rigidbody to have.
+        // target velocity
         Vector3 targetVel = Vector3.zero;
         if (desiredPlanar.sqrMagnitude > stopEpsilon * stopEpsilon)
             targetVel = desiredPlanar.normalized * moveSpeed;
 
-        // 3) Accelerate the rigidbody toward that velocity.
-        Vector3 newVel = Vector3.MoveTowards(rb.velocity, new Vector3(targetVel.x, rb.velocity.y, targetVel.z), accel * Time.fixedDeltaTime);
+        // accelerate rb
+        Vector3 newVel = Vector3.MoveTowards(
+            rb.velocity,
+            new Vector3(targetVel.x, rb.velocity.y, targetVel.z),
+            accel * Time.fixedDeltaTime
+        );
         rb.velocity = newVel;
 
-        // 4) Face movement direction.
+        // face move dir
         Vector3 faceDir = new Vector3(newVel.x, 0f, newVel.z);
         if (faceDir.sqrMagnitude > 0.0001f)
         {
@@ -126,6 +120,7 @@ public class NPCSimpleCollector : MonoBehaviour
         }
     }
 
+    // roaming between random points, opportunistically chasing items
     void TickRoam()
     {
         if (!agent.pathPending && (Time.time >= nextPathTime) && (!agent.hasPath || agent.remainingDistance < 0.3f))
@@ -147,6 +142,7 @@ public class NPCSimpleCollector : MonoBehaviour
         }
     }
 
+    // heading to an item, repathing on a cadence
     void TickToItem()
     {
         if (currentItem == null) { state = State.Roam; return; }
@@ -169,6 +165,7 @@ public class NPCSimpleCollector : MonoBehaviour
         }
     }
 
+    // distance using collider closest points
     float DistanceTo(Transform target)
     {
         Collider theirCol = target.GetComponent<Collider>();
@@ -181,6 +178,7 @@ public class NPCSimpleCollector : MonoBehaviour
         return Vector3.Distance(transform.position, target.position);
     }
 
+    // find nearest tagged within radius
     Transform FindNearestTagged(string tagName, float radius)
     {
         Collider[] hits = Physics.OverlapSphere(transform.position, radius, ~0, QueryTriggerInteraction.Ignore);
@@ -200,6 +198,7 @@ public class NPCSimpleCollector : MonoBehaviour
         return best;
     }
 
+    // random reachable point
     static Vector3 RandomPointOnNavmesh(Vector3 origin, float radius)
     {
         for (int i = 0; i < 12; i++)
@@ -213,9 +212,72 @@ public class NPCSimpleCollector : MonoBehaviour
         return origin;
     }
 
+    // draw scan radius
     void OnDrawGizmosSelected()
     {
         Gizmos.color = Color.cyan;
         Gizmos.DrawWireSphere(transform.position, scanRadius);
+    }
+
+    // short feeler to detect walls, then pick a new point away from hit
+    void TryAvoidWall()
+    {
+        if (Time.time < nextAvoidTime) return;
+
+        Vector3 origin = cap ? (transform.position + Vector3.up * Mathf.Clamp(cap.height * 0.5f, 0.5f, 1.5f))
+                             : transform.position + Vector3.up * 0.9f;
+
+        Vector3 fwd = rb.velocity;
+        fwd.y = 0f;
+        if (fwd.sqrMagnitude < 0.01f) fwd = transform.forward;
+        fwd.Normalize();
+
+        float radius = cap ? Mathf.Max(0.1f, cap.radius * 0.9f) : 0.3f;
+        if (Physics.SphereCast(origin, radius, fwd, out RaycastHit hit, wallCheckDistance, wallMask, QueryTriggerInteraction.Ignore))
+        {
+            Vector3 away = Vector3.ProjectOnPlane(Vector3.Reflect(fwd, hit.normal), Vector3.up).normalized;
+            if (away.sqrMagnitude < 0.25f) away = -fwd; // fallback
+
+            Vector3 candidate = transform.position + away * avoidJumpDistance;
+
+            if (NavMesh.SamplePosition(candidate, out var navHit, 2f, NavMesh.AllAreas))
+            {
+                agent.SetDestination(navHit.position);
+                nextPathTime = Time.time + 0.1f;
+                nextAvoidTime = Time.time + reavoidCooldown;
+
+                // if we were chasing an item and the wall is hard blocking, drop it
+                if (state == State.ToItem && currentItem != null)
+                {
+                    // optional: keep chasing, but this drop helps them not nose into walls forever
+                    currentItem = null;
+                    state = State.Roam;
+                }
+            }
+        }
+    }
+
+    // watch progress and repath if stuck
+    void HandleProgressFailSafe()
+    {
+        if (agent.hasPath && !agent.pathPending)
+        {
+            float moved = Vector3.ProjectOnPlane(rb.position - lastProgressPos, Vector3.up).magnitude;
+            if (moved > 0.1f)
+            {
+                lastProgressPos = rb.position;
+                lastProgressTime = Time.time;
+            }
+            else if (Time.time - lastProgressTime > stuckSeconds)
+            {
+                if (agent.hasPath) agent.SetDestination(agent.destination);
+                lastProgressTime = Time.time;
+            }
+        }
+        else
+        {
+            lastProgressPos = rb.position;
+            lastProgressTime = Time.time;
+        }
     }
 }
