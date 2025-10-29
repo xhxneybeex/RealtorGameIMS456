@@ -6,6 +6,7 @@ TagManager:
   tags:
   - Interactable
   - NPCInteractible
+  - Trigger
   layers:
   - Default
   - TransparentFX
