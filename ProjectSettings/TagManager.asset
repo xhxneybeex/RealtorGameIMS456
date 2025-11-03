@@ -6,6 +6,8 @@ TagManager:
   tags:
   - Interactable
   - NPCInteractible
+  - SpaceHeater
+  - Furnace
   layers:
   - Default
   - TransparentFX

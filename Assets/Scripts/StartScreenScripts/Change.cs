@@ -6,7 +6,7 @@ public class Change : MonoBehaviour
     // Loads a specific scene by name
     public void StartGame()
     {
-        SceneManager.LoadScene("MainScene"); // change to your scene name
+        SceneManager.LoadScene("LevelSelection"); // change to your scene name
     }
 
     // Quits the entire game/application
