@@ -2,46 +2,39 @@ using UnityEngine;
 
 public class RaycastInteractor : MonoBehaviour
 {
-    [Header("Raycast")]
-    public Camera cam;                      // FPS camera (auto-finds MainCamera if empty)
-    public float distance = 3.5f;
-    public LayerMask mask = ~0;             // start with Everything
+    public Camera cam;              // your main camera
+    public float distance = 3.5f;   // how far you can look
+    public LayerMask mask = ~0;     // hit everything
     public string interactableTag = "Interactable";
     public KeyCode interactKey = KeyCode.E;
 
-    [Header("UI")]
-    public GameObject handIcon;             // UI Image GameObject (PNG sprite in a Canvas)
-
-    SimpleDoor currentDoor;
+    public GameObject handIcon;     // UI hand icon
 
     void Awake()
     {
-        if (!cam) cam = Camera.main ? Camera.main : GetComponentInChildren<Camera>();
+        if (!cam) cam = Camera.main;
         if (handIcon) handIcon.SetActive(false);
     }
 
     void Update()
     {
-        currentDoor = null;
+        bool lookingAtInteractable = false;
 
-        // Cast a single ray from camera forward
         Ray ray = new Ray(cam.transform.position, cam.transform.forward);
         if (Physics.Raycast(ray, out RaycastHit hit, distance, mask, QueryTriggerInteraction.Ignore))
         {
-            // TAG-BASED FILTER: only consider objects tagged Interactable
             if (hit.collider.CompareTag(interactableTag))
             {
-                currentDoor = hit.collider.GetComponentInParent<SimpleDoor>();
+                lookingAtInteractable = true;
+
+                // call Interact() if the object has it
+                if (Input.GetKeyDown(interactKey))
+                {
+                    hit.collider.SendMessage("Interact", SendMessageOptions.DontRequireReceiver);
+                }
             }
         }
 
-        // Show/hide hand icon
-        if (handIcon) handIcon.SetActive(currentDoor != null);
-
-        // Interact
-        if (currentDoor != null && Input.GetKeyDown(interactKey))
-        {
-            currentDoor.Interact();
-        }
+        if (handIcon) handIcon.SetActive(lookingAtInteractable);
     }
 }
