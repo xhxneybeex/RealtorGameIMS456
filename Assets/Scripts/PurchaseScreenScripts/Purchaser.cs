@@ -25,13 +25,18 @@ public class Purchaser : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
-        money.text = "Money: " + amount;
-        FireRayCast();
+        money.text = "Money: $" + amount;
+        if (Input.GetMouseButton(0))
+        {
+            FireRayCast();
+        }
+
+
     }
 
     public void subtractMoney(int money)
     {
-        if (money < amount)
+        if (money <= amount)
         {
             amount = amount - money;
         }

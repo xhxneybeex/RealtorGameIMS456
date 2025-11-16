@@ -11,6 +11,8 @@ public class PurchaseManager : MonoBehaviour
     [SerializeField] public Text objectPrice;
 
     [SerializeField] public GameObject purchaseScreen;
+
+    [SerializeField] public GameObject continueButton;
     private int amount = 0;
 
     public bool spaceHeater = false;
@@ -34,6 +36,7 @@ public class PurchaseManager : MonoBehaviour
     public void spaceHeaters()
     {
         spaceHeater = true;
+        continueButton.gameObject.SetActive(false);
         purchaseScreen.gameObject.SetActive(true);
 
         objectName.text = "Space Heater";
@@ -45,6 +48,7 @@ public class PurchaseManager : MonoBehaviour
     public void furnaces()
     {
         furnace = true;
+        continueButton.gameObject.SetActive(false);
         purchaseScreen.gameObject.SetActive(true);
         objectName.text = "Furnace";
         objectDescription.text = "Meant to heat the entire home!";
@@ -54,8 +58,20 @@ public class PurchaseManager : MonoBehaviour
 
     public void buy()
     {
+        if (furnace)
+        {
+            amount = 250;
+        }
+        else if (spaceHeater)
+        {
+            amount = 50;
+        }
         p.subtractMoney(amount);
+        spaceHeater = false;
+        furnace = false;
+        continueButton.gameObject.SetActive(true);
         purchaseScreen.gameObject.SetActive(false);
+
 
     }
 

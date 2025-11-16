@@ -1025,6 +1025,7 @@ MonoBehaviour:
   objectDescription: {fileID: 2005292854}
   objectPrice: {fileID: 1204214883}
   purchaseScreen: {fileID: 1182102127}
+  continueButton: {fileID: 1027263747}
   spaceHeater: 0
   furnace: 0
 --- !u!4 &674725831
