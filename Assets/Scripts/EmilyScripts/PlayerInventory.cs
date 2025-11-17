@@ -31,14 +31,12 @@ public class PlayerInventory : MonoBehaviour
 
         if (scroll > 0f)
         {
-            // next item
             currentIndex++;
             if (currentIndex >= items.Count) currentIndex = 0;
             ShowCurrentItem();
         }
         else if (scroll < 0f)
         {
-            // previous item
             currentIndex--;
             if (currentIndex < 0) currentIndex = items.Count - 1;
             ShowCurrentItem();
@@ -59,10 +57,10 @@ public class PlayerInventory : MonoBehaviour
             return false;
         }
 
-        // Hide the world item
-        pickup.gameObject.SetActive(false);
+        // Remove the world object so it doesn’t interfere later
+        Destroy(pickup.gameObject);
 
-        // Spawn held version in hand, but keep it hidden if not selected
+        // Spawn held version in hand, but keep it hidden until selected
         GameObject heldInstance = Instantiate(pickup.heldPrefab, handSocket);
         heldInstance.transform.localPosition = Vector3.zero;
         heldInstance.transform.localRotation = Quaternion.identity;
@@ -88,7 +86,7 @@ public class PlayerInventory : MonoBehaviour
 
     void ShowCurrentItem()
     {
-        // Turn off all held items
+        // Turn off all held items except the current one
         for (int i = 0; i < items.Count; i++)
         {
             if (items[i].heldObject != null)

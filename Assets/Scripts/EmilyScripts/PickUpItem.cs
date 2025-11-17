@@ -2,10 +2,12 @@ using UnityEngine;
 
 public class PickupItem : MonoBehaviour
 {
-    [Header("Item Info")]
-    public string itemName = "Heater";
-
-    [Header("Held Version")]
-    // This is the prefab that appears in the player's hand
+    public string itemName = "Item";
     public GameObject heldPrefab;
+
+    // Called by RaycastInteractor when you press E
+    public void Interact()
+    {
+        FindObjectOfType<PlayerInventory>().TryAddItem(this);
+    }
 }
