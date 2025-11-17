@@ -8,6 +8,7 @@ TagManager:
   - NPCInteractible
   - SpaceHeater
   - Furnace
+  - PickUp
   layers:
   - Default
   - TransparentFX
