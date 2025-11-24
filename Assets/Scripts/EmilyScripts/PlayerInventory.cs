@@ -87,7 +87,7 @@ public class PlayerInventory : MonoBehaviour
         items.Add(newItem);
 
         // Disable world object instead of destroying
-        //pickup.gameObject.SetActive(false);
+        pickup.gameObject.SetActive(false);
 
         // Auto-select first item
         if (currentIndex == -1)
@@ -124,10 +124,32 @@ public class PlayerInventory : MonoBehaviour
 
         Quaternion rot = dropPoint != null ? dropPoint.rotation : Quaternion.identity;
 
-        // Reactivate original pickup object
-        item.pickupData.gameObject.SetActive(true);
-        item.pickupData.transform.position = pos;
-        item.pickupData.transform.rotation = rot;
+        // Use worldPrefab if available, otherwise fall back to original
+        if (item.pickupData.worldPrefab != null)
+        {
+            // Spawn a fresh world instance
+            GameObject worldInstance = Instantiate(item.pickupData.worldPrefab, pos, rot);
+
+            // Copy the PickupItem component data to the new instance
+            PickupItem newPickup = worldInstance.GetComponent<PickupItem>();
+            if (newPickup == null)
+            {
+                newPickup = worldInstance.AddComponent<PickupItem>();
+            }
+            newPickup.itemName = item.pickupData.itemName;
+            newPickup.heldPrefab = item.pickupData.heldPrefab;
+            newPickup.worldPrefab = item.pickupData.worldPrefab;
+
+            // Destroy the original pickup object since we're spawning a fresh one
+            Destroy(item.pickupData.gameObject);
+        }
+        else
+        {
+            // Fallback: reactivate original pickup object
+            item.pickupData.gameObject.SetActive(true);
+            item.pickupData.transform.position = pos;
+            item.pickupData.transform.rotation = rot;
+        }
 
         Debug.Log($"[Inventory] Dropped: {item.pickupData.itemName} | pos: {pos}");
 
