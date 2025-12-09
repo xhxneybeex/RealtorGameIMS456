@@ -8,50 +8,133 @@ public class RoomManager : MonoBehaviour
         ColdRoom,
         FlickerLights,
         BadSmell,
-        FloatingObjects,
         BloodStain
     }
 
     [Header("Basic Info")]
     public string roomName = "Unnamed Room";
 
-    // This is what NPCGhostAwareness is looking for
     [Tooltip("True while any haunt is active.")]
     public bool isHaunted = false;
 
     [Header("Timing")]
     public float minDelay = 20f;
-    public float maxDelay = 60f;   // 1 minute max like you asked
+    public float maxDelay = 60f;
 
-    float nextHauntTime;
-    HauntType currentHaunt = HauntType.None;
-    HauntType lastHaunt = HauntType.None;
+    private float nextHauntTime;
+    public HauntType currentHaunt = HauntType.None;
+    private HauntType lastHaunt = HauntType.None;
 
     [Header("Cold Room")]
     public GameObject coldRoomVFX;
-    public bool heaterInside = false;
+    private bool heaterInside = false;
+
+    [Header("Flicker Lights")]
+    public Light[] lightsToFlicker;
+    private bool hasWorkingBulb = false;
+    private bool[] originalLightStates;
+    private float[] originalLightIntensities;
+
+    [Header("Bad Smell")]
+    public GameObject smellVFX;
+    private bool candleInside = false;
+
+    [Header("Blood Stain")]
+    public GameObject bloodStainVFX;
+    private bool bloodCleaned = false;
+
+    [Header("Sage Protection")]
+    private bool sageProtectionActive = false;
+    private float sageProtectionEndTime = 0f;
 
     void Start()
     {
         ScheduleNextHaunt();
+        StoreLightStates();
+    }
+
+    void StoreLightStates()
+    {
+        if (lightsToFlicker != null && lightsToFlicker.Length > 0)
+        {
+            originalLightStates = new bool[lightsToFlicker.Length];
+            originalLightIntensities = new float[lightsToFlicker.Length];
+
+            for (int i = 0; i < lightsToFlicker.Length; i++)
+            {
+                if (lightsToFlicker[i] != null)
+                {
+                    originalLightStates[i] = lightsToFlicker[i].enabled;
+                    originalLightIntensities[i] = lightsToFlicker[i].intensity;
+                }
+            }
+        }
     }
 
     void Update()
     {
+        if (sageProtectionActive)
+        {
+            if (Time.time >= sageProtectionEndTime)
+            {
+                sageProtectionActive = false;
+                Debug.Log($"<color=yellow>[Room {roomName}]</color> Sage protection expired.");
+                
+                if (currentHaunt == HauntType.None)
+                {
+                    ScheduleNextHaunt();
+                }
+            }
+        }
+
         if (currentHaunt == HauntType.None)
         {
-            if (Time.time >= nextHauntTime)
+            if (!sageProtectionActive && Time.time >= nextHauntTime)
             {
                 StartRandomHaunt();
             }
         }
         else
         {
-            if (currentHaunt == HauntType.ColdRoom && heaterInside)
-            {
-                Debug.Log($"<color=cyan>[Room {roomName}]</color> Heater detected during cold room. Ending haunt.");
-                StopCurrentHaunt();
-            }
+            CheckHauntSolutions();
+        }
+    }
+
+    void CheckHauntSolutions()
+    {
+        switch (currentHaunt)
+        {
+            case HauntType.ColdRoom:
+                if (heaterInside)
+                {
+                    Debug.Log($"<color=cyan>[Room {roomName}]</color> Heater detected during cold room. Ending haunt.");
+                    StopCurrentHaunt();
+                }
+                break;
+
+            case HauntType.FlickerLights:
+                if (hasWorkingBulb)
+                {
+                    Debug.Log($"<color=yellow>[Room {roomName}]</color> Light bulb installed. Ending flicker.");
+                    StopCurrentHaunt();
+                }
+                break;
+
+            case HauntType.BadSmell:
+                if (candleInside)
+                {
+                    Debug.Log($"<color=orange>[Room {roomName}]</color> Candle placed. Ending bad smell.");
+                    StopCurrentHaunt();
+                }
+                break;
+
+            case HauntType.BloodStain:
+                if (bloodCleaned)
+                {
+                    Debug.Log($"<color=red>[Room {roomName}]</color> Blood cleaned. Ending haunt.");
+                    StopCurrentHaunt();
+                }
+                break;
         }
     }
 
@@ -65,6 +148,13 @@ public class RoomManager : MonoBehaviour
 
     void StartRandomHaunt()
     {
+        if (sageProtectionActive)
+        {
+            Debug.Log($"<color=green>[Room {roomName}]</color> Sage protection is active. Skipping haunt.");
+            ScheduleNextHaunt();
+            return;
+        }
+
         HauntType chosen = GetRandomHauntType();
 
         if (chosen == HauntType.None)
@@ -76,7 +166,7 @@ public class RoomManager : MonoBehaviour
 
         currentHaunt = chosen;
         lastHaunt = chosen;
-        isHaunted = true;   // <<< important for NPCGhostAwareness
+        isHaunted = true;
 
         Debug.Log($"<color=magenta>[Room {roomName}]</color> Haunt started: <b>{currentHaunt}</b>");
 
@@ -84,9 +174,32 @@ public class RoomManager : MonoBehaviour
         {
             case HauntType.ColdRoom:
                 if (coldRoomVFX != null)
+                {
                     coldRoomVFX.SetActive(true);
-
+                }
                 Debug.Log($"<color=cyan>[Room {roomName}]</color> Cold room VFX activated.");
+                break;
+
+            case HauntType.FlickerLights:
+                StartFlickeringLights();
+                Debug.Log($"<color=yellow>[Room {roomName}]</color> Lights started flickering.");
+                break;
+
+            case HauntType.BadSmell:
+                if (smellVFX != null)
+                {
+                    smellVFX.SetActive(true);
+                }
+                Debug.Log($"<color=orange>[Room {roomName}]</color> Bad smell VFX activated.");
+                break;
+
+            case HauntType.BloodStain:
+                if (bloodStainVFX != null)
+                {
+                    bloodStainVFX.SetActive(true);
+                }
+                bloodCleaned = false;
+                Debug.Log($"<color=red>[Room {roomName}]</color> Blood stain appeared.");
                 break;
         }
     }
@@ -95,8 +208,10 @@ public class RoomManager : MonoBehaviour
     {
         HauntType[] possible =
         {
-            HauntType.ColdRoom
-            // add more later
+            HauntType.ColdRoom,
+            HauntType.FlickerLights,
+            HauntType.BadSmell,
+            HauntType.BloodStain
         };
 
         HauntType chosen = possible[Random.Range(0, possible.Length)];
@@ -114,20 +229,43 @@ public class RoomManager : MonoBehaviour
         {
             case HauntType.ColdRoom:
                 if (coldRoomVFX != null)
+                {
                     coldRoomVFX.SetActive(false);
+                }
                 Debug.Log($"<color=cyan>[Room {roomName}]</color> Cold room VFX disabled.");
+                break;
+
+            case HauntType.FlickerLights:
+                StopFlickeringLights();
+                Debug.Log($"<color=yellow>[Room {roomName}]</color> Lights stopped flickering.");
+                break;
+
+            case HauntType.BadSmell:
+                if (smellVFX != null)
+                {
+                    smellVFX.SetActive(false);
+                }
+                Debug.Log($"<color=orange>[Room {roomName}]</color> Bad smell VFX disabled.");
+                break;
+
+            case HauntType.BloodStain:
+                if (bloodStainVFX != null)
+                {
+                    bloodStainVFX.SetActive(false);
+                }
+                Debug.Log($"<color=red>[Room {roomName}]</color> Blood stain removed.");
                 break;
         }
 
         currentHaunt = HauntType.None;
-        isHaunted = false;   // <<< tell NPCs room is calm again
+        isHaunted = false;
 
         ScheduleNextHaunt();
     }
 
     void OnTriggerEnter(Collider other)
     {
-        if (other.CompareTag("Heater"))
+        if (other.GetComponent<HeaterItem>() != null)
         {
             heaterInside = true;
             Debug.Log($"<color=cyan>[Room {roomName}]</color> Heater ENTERED room.");
@@ -138,14 +276,119 @@ public class RoomManager : MonoBehaviour
                 StopCurrentHaunt();
             }
         }
+        else if (other.GetComponent<CandleItem>() != null)
+        {
+            candleInside = true;
+            Debug.Log($"<color=orange>[Room {roomName}]</color> Candle ENTERED room.");
+
+            if (currentHaunt == HauntType.BadSmell)
+            {
+                Debug.Log($"<color=orange>[Room {roomName}]</color> Candle fixes bad smell instantly.");
+                StopCurrentHaunt();
+            }
+        }
+        else if (other.GetComponent<LightBulbItem>() != null)
+        {
+            hasWorkingBulb = true;
+            Debug.Log($"<color=yellow>[Room {roomName}]</color> Light bulb ENTERED room.");
+
+            if (currentHaunt == HauntType.FlickerLights)
+            {
+                Debug.Log($"<color=yellow>[Room {roomName}]</color> Light bulb fixes flickering instantly.");
+                StopCurrentHaunt();
+            }
+        }
     }
 
     void OnTriggerExit(Collider other)
     {
-        if (other.CompareTag("Heater"))
+        if (other.GetComponent<HeaterItem>() != null)
         {
             heaterInside = false;
             Debug.Log($"<color=cyan>[Room {roomName}]</color> Heater LEFT room.");
+        }
+        else if (other.GetComponent<CandleItem>() != null)
+        {
+            candleInside = false;
+            Debug.Log($"<color=orange>[Room {roomName}]</color> Candle LEFT room.");
+        }
+        else if (other.GetComponent<LightBulbItem>() != null)
+        {
+            hasWorkingBulb = false;
+            Debug.Log($"<color=yellow>[Room {roomName}]</color> Light bulb LEFT room.");
+        }
+    }
+
+    void StartFlickeringLights()
+    {
+        if (lightsToFlicker == null || lightsToFlicker.Length == 0)
+        {
+            Debug.LogWarning($"[Room {roomName}] No lights assigned to flicker!");
+            return;
+        }
+
+        foreach (Light light in lightsToFlicker)
+        {
+            if (light != null)
+            {
+                LightFlicker flicker = light.GetComponent<LightFlicker>();
+                if (flicker == null)
+                {
+                    flicker = light.gameObject.AddComponent<LightFlicker>();
+                }
+                flicker.enabled = true;
+                flicker.StartFlickering();
+            }
+        }
+    }
+
+    void StopFlickeringLights()
+    {
+        if (lightsToFlicker == null || lightsToFlicker.Length == 0)
+        {
+            return;
+        }
+
+        for (int i = 0; i < lightsToFlicker.Length; i++)
+        {
+            if (lightsToFlicker[i] != null)
+            {
+                LightFlicker flicker = lightsToFlicker[i].GetComponent<LightFlicker>();
+                if (flicker != null)
+                {
+                    flicker.StopFlickering();
+                    flicker.enabled = false;
+                }
+
+                if (originalLightStates != null && i < originalLightStates.Length)
+                {
+                    lightsToFlicker[i].enabled = originalLightStates[i];
+                    lightsToFlicker[i].intensity = originalLightIntensities[i];
+                }
+            }
+        }
+    }
+
+    public void ActivateSageProtection(float duration)
+    {
+        sageProtectionActive = true;
+        sageProtectionEndTime = Time.time + duration;
+
+        Debug.Log($"<color=green>[Room {roomName}]</color> Sage protection activated for {duration} seconds.");
+
+        if (currentHaunt != HauntType.None)
+        {
+            StopCurrentHaunt();
+        }
+    }
+
+    public void CleanBloodStain()
+    {
+        bloodCleaned = true;
+
+        if (currentHaunt == HauntType.BloodStain)
+        {
+            StopCurrentHaunt();
         }
     }
 }

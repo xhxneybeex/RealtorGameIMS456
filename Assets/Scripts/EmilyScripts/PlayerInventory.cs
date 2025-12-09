@@ -17,8 +17,11 @@ public class PlayerInventory : MonoBehaviour
     public Transform handSocket;        // where held items attach
 
     [Header("Drop Settings")]
-    public Transform dropPoint;         // drop position in front of the player
-    public KeyCode dropKey = KeyCode.F; // key to drop selected item
+    public Transform dropPoint;
+    public KeyCode dropKey = KeyCode.F;
+
+    [Header("Use Settings")]
+    public KeyCode useKey = KeyCode.G;
 
     private List<HeldItem> items = new List<HeldItem>();
     private int currentIndex = -1;
@@ -27,6 +30,7 @@ public class PlayerInventory : MonoBehaviour
     {
         HandleScrollInput();
         HandleDropInput();
+        HandleUseInput();
     }
 
     // ----------------- SCROLL SELECT -----------------
@@ -57,6 +61,14 @@ public class PlayerInventory : MonoBehaviour
         DropCurrentItem();
     }
 
+    void HandleUseInput()
+    {
+        if (items.Count == 0) return;
+        if (!Input.GetKeyDown(useKey)) return;
+
+        UseCurrentItem();
+    }
+
     // ----------------- ADD ITEM -----------------
     public bool TryAddItem(PickupItem pickup)
     {
@@ -72,11 +84,16 @@ public class PlayerInventory : MonoBehaviour
             return false;
         }
 
-        // Create held model in hand
         GameObject heldInstance = Instantiate(pickup.heldPrefab, handSocket);
         heldInstance.transform.localPosition = Vector3.zero;
         heldInstance.transform.localRotation = Quaternion.identity;
         heldInstance.SetActive(false);
+
+        Rigidbody heldRb = heldInstance.GetComponent<Rigidbody>();
+        if (heldRb != null)
+        {
+            Destroy(heldRb);
+        }
 
         HeldItem newItem = new HeldItem
         {
@@ -86,10 +103,14 @@ public class PlayerInventory : MonoBehaviour
 
         items.Add(newItem);
 
-        // Disable world object instead of destroying
+        Rigidbody pickupRb = pickup.GetComponent<Rigidbody>();
+        if (pickupRb != null)
+        {
+            pickupRb.isKinematic = true;
+        }
+
         pickup.gameObject.SetActive(false);
 
-        // Auto-select first item
         if (currentIndex == -1)
         {
             currentIndex = 0;
@@ -117,20 +138,16 @@ public class PlayerInventory : MonoBehaviour
             return;
         }
 
-        // Decide where to drop it
         Vector3 pos = dropPoint != null
             ? dropPoint.position
             : transform.position + transform.forward * 1.0f + Vector3.up * 0.2f;
 
         Quaternion rot = dropPoint != null ? dropPoint.rotation : Quaternion.identity;
 
-        // Use worldPrefab if available, otherwise fall back to original
         if (item.pickupData.worldPrefab != null)
         {
-            // Spawn a fresh world instance
             GameObject worldInstance = Instantiate(item.pickupData.worldPrefab, pos, rot);
 
-            // Copy the PickupItem component data to the new instance
             PickupItem newPickup = worldInstance.GetComponent<PickupItem>();
             if (newPickup == null)
             {
@@ -140,29 +157,38 @@ public class PlayerInventory : MonoBehaviour
             newPickup.heldPrefab = item.pickupData.heldPrefab;
             newPickup.worldPrefab = item.pickupData.worldPrefab;
 
-            // Destroy the original pickup object since we're spawning a fresh one
+            Rigidbody worldRb = worldInstance.GetComponent<Rigidbody>();
+            if (worldRb != null)
+            {
+                worldRb.isKinematic = false;
+            }
+
             Destroy(item.pickupData.gameObject);
         }
         else
         {
-            // Fallback: reactivate original pickup object
             item.pickupData.gameObject.SetActive(true);
             item.pickupData.transform.position = pos;
             item.pickupData.transform.rotation = rot;
+
+            Rigidbody pickupRb = item.pickupData.GetComponent<Rigidbody>();
+            if (pickupRb != null)
+            {
+                pickupRb.isKinematic = false;
+                pickupRb.velocity = Vector3.zero;
+                pickupRb.angularVelocity = Vector3.zero;
+            }
         }
 
         Debug.Log($"[Inventory] Dropped: {item.pickupData.itemName} | pos: {pos}");
 
-        // Remove the held version (only the in-hand model)
         if (item.heldObject != null)
         {
             Destroy(item.heldObject);
         }
 
-        // Remove from inventory list
         items.RemoveAt(currentIndex);
 
-        // Fix index and update what is shown in hand
         currentIndex = items.Count == 0 ? -1 : Mathf.Clamp(currentIndex, 0, items.Count - 1);
         ShowCurrentItem();
     }
@@ -175,5 +201,67 @@ public class PlayerInventory : MonoBehaviour
             if (items[i].heldObject != null)
                 items[i].heldObject.SetActive(i == currentIndex);
         }
+    }
+
+    void UseCurrentItem()
+    {
+        if (currentIndex < 0 || currentIndex >= items.Count)
+        {
+            Debug.LogWarning("[Inventory] UseCurrentItem called with invalid index.");
+            return;
+        }
+
+        HeldItem item = items[currentIndex];
+
+        if (item == null || item.pickupData == null)
+        {
+            Debug.LogWarning("[Inventory] HeldItem or pickupData is null.");
+            return;
+        }
+
+        UsableItem usable = item.pickupData.GetComponent<UsableItem>();
+
+        if (usable != null)
+        {
+            Debug.Log($"[Inventory] Using: {item.pickupData.itemName}");
+            usable.Use(this);
+
+            if (usable.isConsumable)
+            {
+                RemoveCurrentItem();
+            }
+        }
+        else
+        {
+            Debug.Log($"[Inventory] {item.pickupData.itemName} cannot be used directly. Try dropping it in a room.");
+        }
+    }
+
+    void RemoveCurrentItem()
+    {
+        if (currentIndex < 0 || currentIndex >= items.Count)
+        {
+            Debug.LogWarning("[Inventory] RemoveCurrentItem called with invalid index.");
+            return;
+        }
+
+        HeldItem item = items[currentIndex];
+
+        Debug.Log($"[Inventory] Consumed: {item.pickupData.itemName}");
+
+        if (item.heldObject != null)
+        {
+            Destroy(item.heldObject);
+        }
+
+        if (item.pickupData != null && item.pickupData.gameObject != null)
+        {
+            Destroy(item.pickupData.gameObject);
+        }
+
+        items.RemoveAt(currentIndex);
+
+        currentIndex = items.Count == 0 ? -1 : Mathf.Clamp(currentIndex, 0, items.Count - 1);
+        ShowCurrentItem();
     }
 }
